@@ -17,15 +17,37 @@ class RTSPCamera(CameraBase):
     """Capture from an RTSP (or any URL-addressable) stream.
 
     OpenCV's :class:`cv2.VideoCapture` is used with the ``FFMPEG`` back-end
-    when available, falling back to the default back-end.
+    when available, falling back to a GStreamer pipeline.
+
+    **RTSP URL format**::
+
+        rtsp://[user:password@]<host>[:<port>]/<path>
+
+    Examples::
+
+        # Anonymous access (most IP cameras on default port 554)
+        rtsp://192.168.1.64/stream1
+
+        # With credentials and explicit port
+        rtsp://admin:secret@192.168.1.64:554/h264Preview_01_main
+
+        # Some cameras use port 8554 instead of 554
+        rtsp://192.168.1.64:8554/live
+
+        # Hikvision cameras
+        rtsp://admin:password@192.168.1.64:554/Streaming/Channels/101
+
+        # Dahua cameras
+        rtsp://admin:password@192.168.1.64:554/cam/realmonitor?channel=1&subtype=0
 
     Args:
-        url: RTSP URL, e.g. ``rtsp://user:pass@192.168.1.10:554/stream1``.
+        url: RTSP URL as shown above.
         width: Requested frame width (best-effort; the stream may override).
         height: Requested frame height.
         fps: Not enforced for RTSP; kept for API consistency.
         latency: GStreamer ``rtspsrc`` latency in milliseconds (if using
-            the GStreamer pipeline variant).
+            the GStreamer pipeline variant).  Lower values reduce delay but
+            may cause dropped frames on unreliable networks.
     """
 
     def __init__(

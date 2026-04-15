@@ -3,7 +3,8 @@
 The application is structured as a single :class:`Gtk.ApplicationWindow`
 with three areas:
 
-* **Toolbar**: source selector, Start / Stop button, Settings button.
+* **Toolbar**: source selector, Start / Stop button, Open Image button,
+  Settings button.
 * **Preview pane**: live video feed rendered via a ``Gtk.DrawingArea``.
 * **Detections panel**: scrollable list of recent plate detections.
 """
@@ -15,6 +16,8 @@ import queue
 import threading
 import time
 from typing import Optional
+
+from pathlib import Path
 
 import gi
 
@@ -86,7 +89,7 @@ class SettingsDialog(Gtk.Dialog):
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
             Gtk.STOCK_OK, Gtk.ResponseType.OK,
         )
-        self.set_default_size(380, 260)
+        self.set_default_size(420, 300)
         self._settings = dict(settings)
 
         grid = Gtk.Grid(
@@ -130,13 +133,30 @@ class SettingsDialog(Gtk.Dialog):
         self._rtsp_entry = Gtk.Entry()
         self._rtsp_entry.set_text(settings.get("rtsp_url", "rtsp://"))
         self._rtsp_entry.set_hexpand(True)
+        self._rtsp_entry.set_tooltip_text(
+            "Format:  rtsp://[user:password@]<host>[:<port>]/<path>\n"
+            "Examples:\n"
+            "  rtsp://192.168.1.64/stream1\n"
+            "  rtsp://admin:secret@192.168.1.64:554/h264Preview_01_main\n"
+            "  rtsp://192.168.1.64:8554/live\n"
+            "  rtsp://admin:pass@192.168.1.64:554/Streaming/Channels/101  (Hikvision)\n"
+            "  rtsp://admin:pass@192.168.1.64:554/cam/realmonitor?channel=1&subtype=0  (Dahua)"
+        )
         grid.attach(self._rtsp_entry, 1, 4, 1, 1)
 
+        rtsp_hint = Gtk.Label()
+        rtsp_hint.set_markup(
+            "<small><i>Format: rtsp://[user:pass@]host[:port]/path  "
+            "(hover for examples)</i></small>"
+        )
+        rtsp_hint.set_xalign(0)
+        grid.attach(rtsp_hint, 0, 5, 2, 1)
+
         # --- USB device index ---
-        grid.attach(Gtk.Label(label="USB device index:", xalign=0), 0, 5, 1, 1)
+        grid.attach(Gtk.Label(label="USB device index:", xalign=0), 0, 6, 1, 1)
         self._usb_spin = Gtk.SpinButton.new_with_range(0, 10, 1)
         self._usb_spin.set_value(settings.get("usb_device", 0))
-        grid.attach(self._usb_spin, 1, 5, 1, 1)
+        grid.attach(self._usb_spin, 1, 6, 1, 1)
 
         self.show_all()
 
@@ -219,6 +239,11 @@ class LNPRWindow(Gtk.ApplicationWindow):
         self._start_btn.get_style_context().add_class("suggested-action")
         self._start_btn.connect("clicked", self._on_start_stop)
         toolbar.pack_start(self._start_btn, False, False, 0)
+
+        # Open image for still-picture recognition
+        open_img_btn = Gtk.Button(label="📂  Open Image")
+        open_img_btn.connect("clicked", self._on_open_image)
+        toolbar.pack_start(open_img_btn, False, False, 0)
 
         # Clear detections
         clear_btn = Gtk.Button(label="🗑  Clear")
@@ -446,6 +471,93 @@ class LNPRWindow(Gtk.ApplicationWindow):
         if response == Gtk.ResponseType.OK:
             self._settings = dlg.get_settings()
         dlg.destroy()
+
+    def _on_open_image(self, _btn: Gtk.Button) -> None:
+        """Open a still image file and run the LPR pipeline on it."""
+        dlg = Gtk.FileChooserDialog(
+            title="Open Image",
+            parent=self,
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        dlg.add_buttons(
+            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_OPEN, Gtk.ResponseType.OK,
+        )
+
+        # Filter to common image formats
+        img_filter = Gtk.FileFilter()
+        img_filter.set_name("Images (JPEG, PNG, BMP, TIFF)")
+        for pattern in ("*.jpg", "*.jpeg", "*.png", "*.bmp", "*.tiff", "*.tif", "*.webp"):
+            img_filter.add_pattern(pattern)
+            img_filter.add_pattern(pattern.upper())
+        dlg.add_filter(img_filter)
+
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All files")
+        all_filter.add_pattern("*")
+        dlg.add_filter(all_filter)
+
+        response = dlg.run()
+        filepath = dlg.get_filename()
+        dlg.destroy()
+
+        if response != Gtk.ResponseType.OK or not filepath:
+            return
+
+        self._process_image_file(filepath)
+
+    def _process_image_file(self, filepath: str) -> None:
+        """Load *filepath*, run LPR, display result and log detections."""
+        frame = cv2.imread(filepath)
+        if frame is None:
+            self._show_error(
+                "Cannot Read Image",
+                f"OpenCV could not decode the file:\n{filepath}\n\n"
+                "Supported formats: JPEG, PNG, BMP, TIFF, WebP.",
+            )
+            return
+
+        self._set_status(f"Processing image: {Path(filepath).name} …")
+
+        # Create a one-shot pipeline if none is running
+        own_pipeline = self._pipeline is None
+        pipeline = self._pipeline
+        if own_pipeline:
+            pipeline = LPRPipeline(conf_threshold=self._settings["conf_threshold"])
+            pipeline.open()
+
+        assert pipeline is not None
+        detections = pipeline.process(frame)
+        annotated = pipeline.annotate(frame, detections)
+
+        if own_pipeline:
+            pipeline.close()
+
+        # Display the annotated image
+        alloc = self._preview.get_allocation()
+        display_w = max(alloc.width, 320)
+        display_h = max(alloc.height, 240)
+        h, w = annotated.shape[:2]
+        scale = min(display_w / w, display_h / h)
+        resized = cv2.resize(annotated, (int(w * scale), int(h * scale)))
+        self._preview.set_from_pixbuf(_bgr_to_pixbuf(resized))
+
+        # Log detections
+        for det in detections:
+            ts = time.strftime("%H:%M:%S", time.localtime(det.timestamp))
+            self._det_list.prepend([det.text or "-", f"{det.confidence:.0%}", ts])
+            self._detection_count += 1
+            while len(self._det_list) > MAX_DETECTIONS:
+                self._det_list.remove(self._det_list.get_iter(len(self._det_list) - 1))
+        if detections:
+            self._det_count_lbl.set_text(f"{self._detection_count} detections")
+
+        name = Path(filepath).name
+        if detections:
+            plates = ", ".join(d.text or "?" for d in detections)
+            self._set_status(f"{name}: {len(detections)} plate(s) found – {plates}")
+        else:
+            self._set_status(f"{name}: no plates detected.")
 
     # ------------------------------------------------------------------
     # Helpers

@@ -4,15 +4,15 @@ A **Python / GTK3** application that detects and reads vehicle licence plates in
 real time on a **Raspberry Pi 5** with a **Hailo-8** AI accelerator.
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│ Source: [Demo ▾]  [▶ Start]  [🗑 Clear]  [⚙ Settings]    │
-├──────────────────────────────────────┬─────────────────────┤
-│                                      │ Recent Detections   │
-│   Live camera preview                │ ─────────────────── │
-│   (annotated bounding boxes)         │ AB12 CDE  92%       │
-│                                      │ XY34 FGH  88%       │
-└──────────────────────────────────────┴─────────────────────┘
-│ Running in DEMO mode (no Hailo hardware detected)           │
+┌─────────────────────────────────────────────────────────────────────┐
+│ Source: [Demo ▾]  [▶ Start]  [📂 Open Image]  [🗑 Clear]  [⚙ Settings] │
+├──────────────────────────────────────┬──────────────────────────────┤
+│                                      │ Recent Detections            │
+│   Live camera preview /              │ ──────────────────────────── │
+│   Still image display                │ AB12 CDE  92%  14:30:01      │
+│   (annotated bounding boxes)         │ XY34 FGH  88%  14:29:45      │
+└──────────────────────────────────────┴──────────────────────────────┘
+│ Running in DEMO mode (no Hailo hardware detected)                    │
 ```
 
 ---
@@ -22,8 +22,9 @@ real time on a **Raspberry Pi 5** with a **Hailo-8** AI accelerator.
 | Feature | Detail |
 |---------|--------|
 | **Camera inputs** | RTSP stream, USB / V4L2 camera, Raspberry Pi Camera (PiCamera2) |
+| **Still image** | Upload any JPEG / PNG / BMP / TIFF image for instant plate recognition |
 | **AI inference** | Hailo-8 via `hailo_platform` SDK (YOLOv5s LPD + LPRNet) |
-| **UI** | GTK3 — source selector, Start/Stop, live preview, detections list, settings panel |
+| **UI** | GTK3 — source selector, Start/Stop, Open Image, live preview, detections list, settings panel |
 | **Demo mode** | Synthetic animated frames; no hardware needed |
 | **No libatlas** | Uses only `numpy` + `opencv`; no BLAS/ATLAS dependency |
 | **Target OS** | Debian Trixie (bookworm-compatible), aarch64 |
@@ -147,7 +148,7 @@ python main.py --source usb
 python main.py --source picam
 
 # RTSP stream
-python main.py --source rtsp --rtsp-url rtsp://user:pass@192.168.1.10:554/stream
+python main.py --source rtsp --rtsp-url "rtsp://admin:secret@192.168.1.64:554/h264Preview_01_main"
 
 # Debug logging
 python main.py --demo --debug
@@ -168,12 +169,74 @@ usage: lnpr [-h] [--source {demo,usb,rtsp,picam}] [--demo]
 ## UI walkthrough
 
 1. **Source** dropdown – select *Demo*, *USB Camera*, *PiCamera2*, or *RTSP Stream*.
-2. **⚙ Settings** – configure frame size, FPS, detection confidence threshold, RTSP URL, and USB device index.
-3. **▶ Start** – opens the camera source and starts inference; button changes to **⏹ Stop**.
-4. **Preview pane** – shows the live feed with green bounding boxes and plate text overlaid.
-5. **Recent Detections** panel – timestamped list of the last 50 recognised plates.
-6. **🗑 Clear** – resets the detections list.
-7. **Status bar** – shows current state (Ready / Running / Demo mode / error messages).
+2. **▶ Start** – opens the camera source and starts inference; button changes to **⏹ Stop**.
+3. **📂 Open Image** – open any JPEG / PNG / BMP / TIFF file for instant still-image recognition.  Works at any time, even while a live stream is running.
+4. **⚙ Settings** – configure frame size, FPS, detection confidence threshold, RTSP URL (with format hints), and USB device index.
+5. **Preview pane** – shows the live feed *or* the last uploaded still image, with green bounding boxes and plate text overlaid.
+6. **Recent Detections** panel – timestamped list of the last 50 recognised plates (from both live and still-image sources).
+7. **🗑 Clear** – resets the detections list.
+8. **Status bar** – shows current state (Ready / Running / file processed / error messages).
+
+### Still image recognition
+
+Click **📂 Open Image** at any time to open a file chooser.  Select a photo of
+a vehicle (JPEG, PNG, BMP, TIFF, WebP).  The LPR pipeline runs immediately on
+the loaded image: annotated bounding boxes appear in the preview pane, and any
+recognised plates are added to the detections list.  The camera stream (if
+active) resumes automatically.
+
+---
+
+## RTSP stream URL format
+
+```
+rtsp://[user:password@]<host>[:<port>]/<path>
+```
+
+| Component | Description |
+|-----------|-------------|
+| `user:password@` | Optional credentials.  Omit if the camera has no auth. |
+| `host` | Camera IP address or hostname (e.g. `192.168.1.64`). |
+| `port` | Optional; default is **554**.  Some cameras use **8554**. |
+| `/path` | Stream path – varies by camera make/firmware. |
+
+### Common examples
+
+```bash
+# Generic anonymous stream (no auth, default port)
+rtsp://192.168.1.64/stream1
+
+# With credentials
+rtsp://admin:secret@192.168.1.64:554/h264Preview_01_main
+
+# Lower-resolution sub-stream (less bandwidth)
+rtsp://admin:secret@192.168.1.64:554/h264Preview_01_sub
+
+# Alternate port
+rtsp://192.168.1.64:8554/live
+
+# Hikvision IP cameras
+rtsp://admin:password@192.168.1.64:554/Streaming/Channels/101
+
+# Dahua IP cameras
+rtsp://admin:password@192.168.1.64:554/cam/realmonitor?channel=1&subtype=0
+
+# Reolink cameras
+rtsp://admin:password@192.168.1.64:554//h264Preview_01_main
+```
+
+> **Tip**: Enter the URL in **⚙ Settings → RTSP URL** and hover over the
+> field for quick examples.  Then select *RTSP Stream* in the Source dropdown
+> and press **▶ Start**.
+
+### Troubleshooting RTSP
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| "Cannot open RTSP stream" | Wrong URL or unreachable host | Check IP / port with `ping` or VLC |
+| Choppy / frozen video | Network latency | Increase *latency* (code default: 200 ms) |
+| "FFMPEG backend failed" | OpenCV built without FFMPEG | Install `ffmpeg`; app auto-retries via GStreamer |
+| No colour | Wrong pixel format | Ensure stream is H.264; MJPEG streams may need extra configuration |
 
 ---
 
