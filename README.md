@@ -37,6 +37,7 @@ real time on a **Raspberry Pi 5** with a **Hailo-8** AI accelerator.
 LNPR/
 ├── main.py                 # Entry point
 ├── install.sh              # One-shot installation script
+├── uninstall.sh            # Uninstall / clean-up script
 ├── requirements.txt        # Python dependencies
 │
 ├── src/
@@ -276,6 +277,31 @@ NumPy; no BLAS/ATLAS dependency.
 converted from OpenCV BGR arrays.  A `GLib.timeout_add` timer drives UI updates
 at ≤25 fps, decoupled from the background capture thread via a small
 `queue.Queue`.
+
+---
+
+## Uninstall
+
+Run the interactive uninstall script from the project directory:
+
+```bash
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
+The script removes items in four steps, each confirmed interactively where
+there is risk of removing shared resources:
+
+| Step | What is removed | Interactive? |
+|------|----------------|--------------|
+| 1 | Python virtual environment (`.venv/`) | No |
+| 2 | Downloaded Hailo model files (`models/*.hef`) and any cloned infra repos | No |
+| 3 | apt packages installed by `install.sh` | **Yes** – skipped by default |
+| 4 | The entire LNPR project directory | **Yes** – skipped by default |
+
+> **Note**: The Hailo Runtime SDK (`hailo_platform`) must be uninstalled
+> separately, following the instructions from the
+> [Hailo Developer Zone](https://hailo.ai/developer-zone/).
 
 ---
 
