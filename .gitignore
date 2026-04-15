@@ -1,0 +1,55 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Nginx
+nginx/logs/
+nginx/conf/ssl/
+
+# PHP
+vendor/
+composer.phar
+composer.lock
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Redis
+dump.rdb
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Certificates
+*.pem
+*.crt
+*.key
