@@ -1,0 +1,11 @@
+# Core
+numpy>=1.24
+opencv-python-headless>=4.8
+PyGObject>=3.44        # GTK3 Python bindings (gi)
+
+# Camera extras (optional – installed separately on RPi)
+# picamera2            # sudo apt install python3-picamera2
+
+# Hailo SDK (optional – installed from Hailo DZ package)
+# hailo_platform       # installed from hailo_platform-*.whl
+# hailo-model-zoo      # pip install hailo-model-zoo (for model compilation)
