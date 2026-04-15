@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 _DEMO_PLATES = ["AB12 CDE", "XY34 FGH", "LM56 NOP", "QR78 STU", "VW90 XYZ"]
 
 
+_ANIMATION_AMPLITUDE = 30   # pixels – vertical plate oscillation range
+_ANIMATION_SPEED = 15       # divisor – controls oscillation frequency
+
+
 def _make_synthetic_frame(
     width: int, height: int, frame_idx: int
 ) -> np.ndarray:
@@ -38,7 +42,7 @@ def _make_synthetic_frame(
     plate_text = _DEMO_PLATES[frame_idx % len(_DEMO_PLATES)]
     plate_w, plate_h = 320, 80
     px = (width - plate_w) // 2
-    py = (height - plate_h) // 2 + int(30 * np.sin(frame_idx / 15))
+    py = (height - plate_h) // 2 + int(_ANIMATION_AMPLITUDE * np.sin(frame_idx / _ANIMATION_SPEED))
     py = max(0, min(py, height - plate_h))
 
     cv2.rectangle(frame, (px, py), (px + plate_w, py + plate_h), (0, 200, 255), -1)

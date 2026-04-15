@@ -127,19 +127,6 @@ _MOCK_PLATES = [
     "AB12 CDE", "XY34 FGH", "LM56 NOP", "QR78 STU", "VW90 XYZ",
     "AA00 AAA", "ZZ99 ZZZ",
 ]
-_mock_counter = 0
-
-
-def _mock_detect(frame: np.ndarray) -> List[PlateDetection]:
-    """Return a single fake detection for demo/mock mode."""
-    global _mock_counter  # noqa: PLW0603
-    h, w = frame.shape[:2]
-    plate_w, plate_h = w // 4, h // 10
-    x = w // 2 - plate_w // 2
-    y = h // 2 - plate_h // 2
-    text = _MOCK_PLATES[_mock_counter % len(_MOCK_PLATES)]
-    _mock_counter += 1
-    return [PlateDetection(bbox=(x, y, plate_w, plate_h), text=text, confidence=0.95)]
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +155,8 @@ class LPRPipeline:
         self._lpd = HailoInference(lpd_hef or "models/lpd_yolov5s.hef")
         self._lpr = HailoInference(lpr_hef or "models/lprnet.hef") if lpr_hef else None
         self._mock = self._lpd.is_mock
+        self._mock_counter = 0
+        self._mock_frame_count = 0
 
     # ------------------------------------------------------------------
 
@@ -204,12 +193,16 @@ class LPRPipeline:
         """
         if self._mock:
             # In mock mode return a detection every ~30 calls to simulate
-            # realistic detection rate without flooding the UI
-            if not hasattr(self, "_mock_frame_count"):
-                self._mock_frame_count = 0
+            # realistic detection rate without flooding the UI.
             self._mock_frame_count += 1
             if self._mock_frame_count % 30 == 1:
-                return _mock_detect(frame)
+                h, w = frame.shape[:2]
+                plate_w, plate_h = w // 4, h // 10
+                x = w // 2 - plate_w // 2
+                y = h // 2 - plate_h // 2
+                text = _MOCK_PLATES[self._mock_counter % len(_MOCK_PLATES)]
+                self._mock_counter += 1
+                return [PlateDetection(bbox=(x, y, plate_w, plate_h), text=text, confidence=0.95)]
             return []
 
         h, w = frame.shape[:2]

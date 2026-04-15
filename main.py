@@ -88,11 +88,11 @@ def main() -> int:
 
     app = LNPRApp()
 
-    # Pass CLI settings into the app via environment / attribute injection
+    # Pass CLI settings into the app via the public API
     if args.demo:
         args.source = "demo"
 
-    app._cli_args = args  # noqa: SLF001 – consumed in do_activate
+    app.set_cli_args(args)
     return app.run(sys.argv[:1])  # pass only argv[0] to GTK
 
 

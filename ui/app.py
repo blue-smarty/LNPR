@@ -369,7 +369,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
         # Update detections list
         for det in detections:
             ts = time.strftime("%H:%M:%S", time.localtime(det.timestamp))
-            self._det_list.prepend([det.text or "—", f"{det.confidence:.0%}", ts])
+            self._det_list.prepend([det.text or "-", f"{det.confidence:.0%}", ts])
             self._detection_count += 1
             # Trim list
             while len(self._det_list) > MAX_DETECTIONS:
@@ -479,7 +479,38 @@ class LNPRWindow(Gtk.ApplicationWindow):
 class LNPRApp(Gtk.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID)
+        self._cli_args = None
+
+    def set_cli_args(self, args) -> None:  # noqa: ANN001
+        """Store parsed CLI arguments to be applied on activation."""
+        self._cli_args = args
 
     def do_activate(self) -> None:
         win = LNPRWindow(self)
+        # Apply CLI-provided defaults if available
+        if self._cli_args is not None:
+            args = self._cli_args
+            settings_patch: dict = {}
+            if args.width:
+                settings_patch["width"] = args.width
+            if args.height:
+                settings_patch["height"] = args.height
+            if args.fps:
+                settings_patch["fps"] = args.fps
+            if args.conf_threshold:
+                settings_patch["conf_threshold"] = args.conf_threshold
+            if args.rtsp_url:
+                settings_patch["rtsp_url"] = args.rtsp_url
+            if args.usb_device is not None:
+                settings_patch["usb_device"] = args.usb_device
+            win._settings.update(settings_patch)  # noqa: SLF001
+
+            if args.source:
+                source_id = args.source
+                combo = win._source_combo  # noqa: SLF001
+                model = combo.get_model()
+                for i, row in enumerate(model):
+                    if row[0] == source_id:
+                        combo.set_active(i)
+                        break
         win.present()
