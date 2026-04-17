@@ -57,7 +57,7 @@ class HailoInference:
 
     Usage::
 
-        with HailoInference("models/lpd_yolov5s.hef") as hailo:
+        with HailoInference("models/lpd.hef") as hailo:
             results = hailo.infer(frame_bgr)
 
     Args:

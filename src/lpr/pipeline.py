@@ -27,6 +27,17 @@ from ..inference.hailo_inference import HailoInference
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_LPD_HEF = Path("models/lpd.hef")
+LEGACY_LPD_HEF = Path("models/lpd_yolov5s.hef")
+DEFAULT_LPR_HEF = Path("models/lprnet.hef")
+
+
+def _resolve_default_lpd_hef() -> str:
+    if DEFAULT_LPD_HEF.exists() or not LEGACY_LPD_HEF.exists():
+        return str(DEFAULT_LPD_HEF)
+    return str(LEGACY_LPD_HEF)
+
+
 # ---------------------------------------------------------------------------
 # Data class
 # ---------------------------------------------------------------------------
@@ -152,8 +163,8 @@ class LPRPipeline:
         device_count: int = 1,
     ) -> None:
         self.conf_threshold = conf_threshold
-        self._lpd = HailoInference(lpd_hef or "models/lpd_yolov5s.hef")
-        self._lpr = HailoInference(lpr_hef or "models/lprnet.hef") if lpr_hef else None
+        self._lpd = HailoInference(lpd_hef or _resolve_default_lpd_hef())
+        self._lpr = HailoInference(lpr_hef or DEFAULT_LPR_HEF) if lpr_hef else None
         self._mock = self._lpd.is_mock
         self._mock_counter = 0
         self._mock_frame_count = 0

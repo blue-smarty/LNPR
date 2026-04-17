@@ -195,6 +195,8 @@ class LNPRWindow(Gtk.ApplicationWindow):
             "height": 720,
             "fps": 30,
             "conf_threshold": 0.45,
+            "lpd_hef": "models/lpd.hef",
+            "lpr_hef": None,
             "rtsp_url": "rtsp://",
             "usb_device": 0,
         }
@@ -423,7 +425,11 @@ class LNPRWindow(Gtk.ApplicationWindow):
             self._show_error("Camera Error", str(exc))
             return
 
-        self._pipeline = LPRPipeline(conf_threshold=self._settings["conf_threshold"])
+        self._pipeline = LPRPipeline(
+            lpd_hef=self._settings["lpd_hef"],
+            lpr_hef=self._settings["lpr_hef"],
+            conf_threshold=self._settings["conf_threshold"],
+        )
         self._pipeline.open()
 
         if self._pipeline.is_mock:
@@ -523,7 +529,11 @@ class LNPRWindow(Gtk.ApplicationWindow):
         own_pipeline = self._pipeline is None
         pipeline = self._pipeline
         if own_pipeline:
-            pipeline = LPRPipeline(conf_threshold=self._settings["conf_threshold"])
+            pipeline = LPRPipeline(
+                lpd_hef=self._settings["lpd_hef"],
+                lpr_hef=self._settings["lpr_hef"],
+                conf_threshold=self._settings["conf_threshold"],
+            )
             pipeline.open()
 
         assert pipeline is not None
@@ -611,6 +621,10 @@ class LNPRApp(Gtk.Application):
                 settings_patch["fps"] = args.fps
             if args.conf_threshold:
                 settings_patch["conf_threshold"] = args.conf_threshold
+            if args.lpd_hef:
+                settings_patch["lpd_hef"] = args.lpd_hef
+            if args.lpr_hef:
+                settings_patch["lpr_hef"] = args.lpr_hef
             if args.rtsp_url:
                 settings_patch["rtsp_url"] = args.rtsp_url
             if args.usb_device is not None:
