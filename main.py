@@ -51,8 +51,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--lpd-hef",
-        default="models/lpd.hef",
-        help="Path to licence-plate detection HEF model.",
+        default=None,
+        help="Path to licence-plate detection HEF model (default: models/lpd.hef).",
     )
     parser.add_argument(
         "--lpr-hef",

@@ -195,7 +195,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
             "height": 720,
             "fps": 30,
             "conf_threshold": 0.45,
-            "lpd_hef": "models/lpd.hef",
+            "lpd_hef": None,
             "lpr_hef": None,
             "rtsp_url": "rtsp://",
             "usb_device": 0,
