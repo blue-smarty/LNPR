@@ -89,7 +89,7 @@ class SettingsDialog(Gtk.Dialog):
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
             Gtk.STOCK_OK, Gtk.ResponseType.OK,
         )
-        self.set_default_size(420, 300)
+        self.set_default_size(520, 420)
         self._settings = dict(settings)
 
         grid = Gtk.Grid(
@@ -158,9 +158,63 @@ class SettingsDialog(Gtk.Dialog):
         self._usb_spin.set_value(settings.get("usb_device", 0))
         grid.attach(self._usb_spin, 1, 6, 1, 1)
 
+        # --- HEF file filter (reused for both pickers) ---
+        hef_filter = Gtk.FileFilter()
+        hef_filter.set_name("Hailo models (*.hef)")
+        hef_filter.add_pattern("*.hef")
+        hef_filter.add_pattern("*.HEF")
+
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All files")
+        all_filter.add_pattern("*")
+
+        # --- Detection model (LPD) ---
+        grid.attach(Gtk.Label(label="Detection model (.hef):", xalign=0), 0, 7, 1, 1)
+        self._lpd_btn = Gtk.FileChooserButton(
+            title="Select detection HEF model",
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        self._lpd_btn.add_filter(hef_filter)
+        self._lpd_btn.add_filter(all_filter)
+        self._lpd_btn.set_hexpand(True)
+        lpd_path = settings.get("lpd_hef") or ""
+        if lpd_path:
+            self._lpd_btn.set_filename(lpd_path)
+        grid.attach(self._lpd_btn, 1, 7, 1, 1)
+
+        lpd_hint = Gtk.Label()
+        lpd_hint.set_markup(
+            "<small><i>Licence-plate detection model (leave blank for default)</i></small>"
+        )
+        lpd_hint.set_xalign(0)
+        grid.attach(lpd_hint, 0, 8, 2, 1)
+
+        # --- Recognition model (LPR) ---
+        grid.attach(Gtk.Label(label="Recognition model (.hef):", xalign=0), 0, 9, 1, 1)
+        self._lpr_btn = Gtk.FileChooserButton(
+            title="Select recognition HEF model",
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        self._lpr_btn.add_filter(hef_filter)
+        self._lpr_btn.add_filter(all_filter)
+        self._lpr_btn.set_hexpand(True)
+        lpr_path = settings.get("lpr_hef") or ""
+        if lpr_path:
+            self._lpr_btn.set_filename(lpr_path)
+        grid.attach(self._lpr_btn, 1, 9, 1, 1)
+
+        lpr_hint = Gtk.Label()
+        lpr_hint.set_markup(
+            "<small><i>Optional licence-plate recognition model (LPRNet)</i></small>"
+        )
+        lpr_hint.set_xalign(0)
+        grid.attach(lpr_hint, 0, 10, 2, 1)
+
         self.show_all()
 
     def get_settings(self) -> dict:
+        lpd_path = self._lpd_btn.get_filename()
+        lpr_path = self._lpr_btn.get_filename()
         return {
             "width": int(self._width_spin.get_value()),
             "height": int(self._height_spin.get_value()),
@@ -168,6 +222,8 @@ class SettingsDialog(Gtk.Dialog):
             "conf_threshold": self._conf_spin.get_value(),
             "rtsp_url": self._rtsp_entry.get_text(),
             "usb_device": int(self._usb_spin.get_value()),
+            "lpd_hef": lpd_path if lpd_path else None,
+            "lpr_hef": lpr_path if lpr_path else None,
         }
 
 
