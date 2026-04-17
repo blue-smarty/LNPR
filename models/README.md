@@ -11,7 +11,7 @@ obtain them.
 
 | File | Purpose | Source |
 |------|---------|--------|
-| `lpd_yolov5s.hef` | Licence-plate **detection** | Hailo Model Zoo |
+| `lpd.hef` | Licence-plate **detection** | Hailo Model Zoo |
 | `lprnet.hef` | Licence-plate **recognition** (optional) | Hailo Model Zoo |
 
 ---
@@ -24,7 +24,7 @@ obtain them.
 pip install hailo-model-zoo          # installs the `hailomz` CLI
 hailomz compile lpd_yolov5s          # compiles for Hailo-8
 hailomz compile lprnet
-mv lpd_yolov5s.hef models/
+mv lpd_yolov5s.hef models/lpd.hef
 mv lprnet.hef         models/
 ```
 
@@ -38,7 +38,7 @@ mv lprnet.hef         models/
 git clone https://github.com/hailo-ai/hailo-apps-infra
 ls hailo-apps-infra/resources/hefs/
 # Copy the relevant HEFs here
-cp hailo-apps-infra/resources/hefs/lpd_yolov5s.hef models/
+cp hailo-apps-infra/resources/hefs/lpd_yolov5s.hef models/lpd.hef
 ```
 
 ### Option C – Hailo Developer Zone portal

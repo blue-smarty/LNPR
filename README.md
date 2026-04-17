@@ -128,7 +128,7 @@ See [`models/README.md`](models/README.md) for manual steps and links.
 
 | Model | HEF file | Task |
 |-------|----------|------|
-| `lpd_yolov5s` | `models/lpd_yolov5s.hef` | Licence-plate **detection** |
+| `lpd_yolov5s` | `models/lpd.hef` | Licence-plate **detection** |
 | `lprnet` | `models/lprnet.hef` | Licence-plate **recognition** (optional) |
 
 > If neither model is present the application starts in **demo mode**

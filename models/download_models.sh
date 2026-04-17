@@ -37,13 +37,15 @@ LPR_SRC="$INFRA_DIR/resources/hefs/lprnet.hef"
 
 if [[ -f "$LPD_SRC" ]]; then
     echo "Found lpd_yolov5s.hef in hailo-apps-infra"
+    cp "$LPD_SRC" "$MODELS_DIR/lpd.hef"
     cp "$LPD_SRC" "$MODELS_DIR/lpd_yolov5s.hef"
 else
     echo "lpd_yolov5s.hef not found in hailo-apps-infra."
     echo "Attempting compilation via hailomz ..."
     if command -v hailomz &>/dev/null; then
         hailomz compile lpd_yolov5s --hw-arch hailo8 --yaml hailo_model_zoo/cfg/networks/lpd_yolov5s.yaml
-        mv lpd_yolov5s.hef "$MODELS_DIR/"
+        cp lpd_yolov5s.hef "$MODELS_DIR/lpd.hef"
+        mv lpd_yolov5s.hef "$MODELS_DIR/lpd_yolov5s.hef"
     else
         echo "WARNING: hailomz not found. Please install hailo-model-zoo:"
         echo "  pip install hailo-model-zoo"
