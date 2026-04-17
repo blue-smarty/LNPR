@@ -172,6 +172,11 @@ class LPRPipeline:
 
     # ------------------------------------------------------------------
 
+    @property
+    def is_mock(self) -> bool:
+        """True if the pipeline is running in mock/demo mode (no Hailo hardware)."""
+        return self._mock
+
     def open(self) -> None:
         self._lpd.open()
         if self._lpr:
