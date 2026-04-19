@@ -31,9 +31,10 @@ import numpy as np  # noqa: E402
 
 from src.camera.base import CameraBase, CameraError
 from src.camera.demo_camera import DemoCamera
-from src.camera.rtsp_camera import RTSPCamera
+from src.camera.rtsp_camera import RTSPCamera, parse_rtsp_urls
 from src.camera.usb_camera import USBCamera
 from src.lpr.pipeline import LPRPipeline, PlateDetection
+from src.update_checker import UpdateInfo, check_for_updates
 
 logger = logging.getLogger(__name__)
 
@@ -129,12 +130,13 @@ class SettingsDialog(Gtk.Dialog):
         grid.attach(self._conf_spin, 1, 3, 1, 1)
 
         # --- RTSP URL ---
-        grid.attach(Gtk.Label(label="RTSP URL:", xalign=0), 0, 4, 1, 1)
+        grid.attach(Gtk.Label(label="RTSP URL(s):", xalign=0), 0, 4, 1, 1)
         self._rtsp_entry = Gtk.Entry()
         self._rtsp_entry.set_text(settings.get("rtsp_url", "rtsp://"))
         self._rtsp_entry.set_hexpand(True)
         self._rtsp_entry.set_tooltip_text(
             "Format:  rtsp://[user:password@]<host>[:<port>]/<path>\n"
+            "Use comma or newline to enter multiple streams.\n"
             "Examples:\n"
             "  rtsp://192.168.1.64/stream1\n"
             "  rtsp://admin:secret@192.168.1.64:554/h264Preview_01_main\n"
@@ -146,7 +148,8 @@ class SettingsDialog(Gtk.Dialog):
 
         rtsp_hint = Gtk.Label()
         rtsp_hint.set_markup(
-            "<small><i>Format: rtsp://[user:pass@]host[:port]/path  "
+            "<small><i>Format: rtsp://[user:pass@]host[:port]/path "
+            "(comma/newline = multiple streams)  "
             "(hover for examples)</i></small>"
         )
         rtsp_hint.set_xalign(0)
@@ -241,6 +244,10 @@ class LNPRWindow(Gtk.ApplicationWindow):
         # Application state
         self._camera: Optional[CameraBase] = None
         self._pipeline: Optional[LPRPipeline] = None
+        self._cameras: list[CameraBase] = []
+        self._pipelines: list[LPRPipeline] = []
+        self._camera_labels: list[str] = []
+        self._next_stream_idx = 0
         self._capture_thread: Optional[threading.Thread] = None
         self._running = False
         self._frame_queue: queue.Queue = queue.Queue(maxsize=FRAME_Q_MAXSIZE)
@@ -312,6 +319,12 @@ class LNPRWindow(Gtk.ApplicationWindow):
         settings_btn = Gtk.Button(label="⚙  Settings")
         settings_btn.connect("clicked", self._on_settings)
         toolbar.pack_end(settings_btn, False, False, 0)
+
+        # Check updates
+        update_btn = Gtk.Button(label="🔄  Check Updates")
+        update_btn.set_tooltip_text("Check GitHub for a newer LNPR release")
+        update_btn.connect("clicked", self._on_check_updates)
+        toolbar.pack_end(update_btn, False, False, 0)
 
         # Separator
         outer.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
@@ -405,21 +418,31 @@ class LNPRWindow(Gtk.ApplicationWindow):
 
     def _capture_loop(self) -> None:
         """Runs in a background thread: reads frames and runs inference."""
-        assert self._camera is not None
-        assert self._pipeline is not None
-
         while self._running:
-            frame = self._camera.read()
+            source_label = ""
+            if self._cameras and self._pipelines:
+                idx = self._next_stream_idx % len(self._cameras)
+                self._next_stream_idx += 1
+                camera = self._cameras[idx]
+                pipeline = self._pipelines[idx]
+                source_label = self._camera_labels[idx]
+            else:
+                assert self._camera is not None
+                assert self._pipeline is not None
+                camera = self._camera
+                pipeline = self._pipeline
+
+            frame = camera.read()
             if frame is None:
                 time.sleep(0.05)
                 continue
 
-            detections = self._pipeline.process(frame)
-            annotated = self._pipeline.annotate(frame, detections)
+            detections = pipeline.process(frame)
+            annotated = pipeline.annotate(frame, detections)
 
             # Push frame for UI update (drop if queue full)
             try:
-                self._frame_queue.put_nowait((annotated, detections))
+                self._frame_queue.put_nowait((annotated, detections, source_label))
             except queue.Full:
                 pass
 
@@ -432,7 +455,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
     def _on_frame_tick(self) -> bool:
         """Called by GLib every ~40 ms to update the preview and detections."""
         try:
-            frame, detections = self._frame_queue.get_nowait()
+            frame, detections, source_label = self._frame_queue.get_nowait()
         except queue.Empty:
             return True  # keep timer alive
 
@@ -452,7 +475,10 @@ class LNPRWindow(Gtk.ApplicationWindow):
         # Update detections list
         for det in detections:
             ts = time.strftime("%H:%M:%S", time.localtime(det.timestamp))
-            self._det_list.prepend([det.text or "-", f"{det.confidence:.0%}", ts])
+            plate_text = det.text or "-"
+            if source_label:
+                plate_text = f"[{source_label}] {plate_text}"
+            self._det_list.prepend([plate_text, f"{det.confidence:.0%}", ts])
             self._detection_count += 1
             # Trim list
             while len(self._det_list) > MAX_DETECTIONS:
@@ -474,22 +500,91 @@ class LNPRWindow(Gtk.ApplicationWindow):
             self._start()
 
     def _start(self) -> None:
-        try:
-            self._camera = self._make_camera()
-            self._camera.open()
-        except CameraError as exc:
-            self._show_error("Camera Error", str(exc))
-            return
+        self._cameras = []
+        self._pipelines = []
+        self._camera_labels = []
+        self._next_stream_idx = 0
 
-        self._pipeline = LPRPipeline(
-            lpd_hef=self._settings["lpd_hef"],
-            lpr_hef=self._settings["lpr_hef"],
-            conf_threshold=self._settings["conf_threshold"],
-        )
-        self._pipeline.open()
+        source = self._source_combo.get_active_id()
+        if source == "rtsp":
+            urls = parse_rtsp_urls(self._settings["rtsp_url"])
+            if len(urls) > 1:
+                try:
+                    self._cameras = [
+                        RTSPCamera(
+                            url=url,
+                            width=self._settings["width"],
+                            height=self._settings["height"],
+                            fps=self._settings["fps"],
+                        )
+                        for url in urls
+                    ]
+                    for camera in self._cameras:
+                        camera.open()
 
-        if self._pipeline.is_mock:
+                    self._pipelines = [
+                        LPRPipeline(
+                            lpd_hef=self._settings["lpd_hef"],
+                            lpr_hef=self._settings["lpr_hef"],
+                            conf_threshold=self._settings["conf_threshold"],
+                        )
+                        for _ in urls
+                    ]
+                    for pipeline in self._pipelines:
+                        pipeline.open()
+                except CameraError as exc:
+                    for pipeline in self._pipelines:
+                        pipeline.close()
+                    for camera in self._cameras:
+                        camera.release()
+                    self._pipelines = []
+                    self._cameras = []
+                    self._show_error("Camera Error", str(exc))
+                    return
+
+                self._camera_labels = [f"RTSP-{idx + 1}" for idx in range(len(urls))]
+                self._camera = None
+                self._pipeline = None
+            else:
+                try:
+                    self._camera = self._make_camera()
+                    self._camera.open()
+                except CameraError as exc:
+                    self._show_error("Camera Error", str(exc))
+                    return
+
+                self._pipeline = LPRPipeline(
+                    lpd_hef=self._settings["lpd_hef"],
+                    lpr_hef=self._settings["lpr_hef"],
+                    conf_threshold=self._settings["conf_threshold"],
+                )
+                self._pipeline.open()
+        else:
+            try:
+                self._camera = self._make_camera()
+                self._camera.open()
+            except CameraError as exc:
+                self._show_error("Camera Error", str(exc))
+                return
+
+            self._pipeline = LPRPipeline(
+                lpd_hef=self._settings["lpd_hef"],
+                lpr_hef=self._settings["lpr_hef"],
+                conf_threshold=self._settings["conf_threshold"],
+            )
+            self._pipeline.open()
+
+        active_pipelines: list[LPRPipeline] = []
+        if self._pipelines:
+            active_pipelines = self._pipelines
+        elif self._pipeline is not None:
+            active_pipelines = [self._pipeline]
+        if active_pipelines and all(p.is_mock for p in active_pipelines):
             self._set_status("Running in DEMO mode (no Hailo hardware detected)")
+        elif len(self._cameras) > 1:
+            self._set_status(
+                f"Running – {len(self._cameras)} RTSP streams with {len(active_pipelines)} inference pipelines"
+            )
         else:
             self._set_status("Running – Hailo-8 active")
 
@@ -515,6 +610,14 @@ class LNPRWindow(Gtk.ApplicationWindow):
         if self._pipeline:
             self._pipeline.close()
             self._pipeline = None
+        for pipeline in self._pipelines:
+            pipeline.close()
+        self._pipelines = []
+        for camera in self._cameras:
+            camera.release()
+        self._cameras = []
+        self._camera_labels = []
+        self._next_stream_idx = 0
 
         self._start_btn.set_label("▶  Start")
         self._start_btn.get_style_context().remove_class("destructive-action")
@@ -533,6 +636,59 @@ class LNPRWindow(Gtk.ApplicationWindow):
         if response == Gtk.ResponseType.OK:
             self._settings = dlg.get_settings()
         dlg.destroy()
+
+    def _on_check_updates(self, _btn: Gtk.Button) -> None:
+        self._set_status("Checking for updates …")
+        threading.Thread(
+            target=self._check_updates_worker,
+            daemon=True,
+            name="update-check",
+        ).start()
+
+    def _check_updates_worker(self) -> None:
+        info = check_for_updates()
+        GLib.idle_add(self._on_update_check_result, info)
+
+    def _on_update_check_result(self, info: UpdateInfo) -> bool:
+        if info.error:
+            self._show_error("Update Check Failed", info.error)
+            self._set_status("Update check failed.")
+            return False
+
+        if info.update_available:
+            msg = (
+                f"Current version: {info.current_version}\n"
+                f"Latest version: {info.latest_version}\n"
+            )
+            if info.release_url:
+                msg += f"\nRelease notes:\n{info.release_url}"
+            dlg = Gtk.MessageDialog(
+                parent=self,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.CLOSE,
+                text="Update Available",
+            )
+            dlg.format_secondary_text(msg)
+            dlg.run()
+            dlg.destroy()
+            self._set_status(f"Update available: {info.latest_version}")
+            return False
+
+        dlg = Gtk.MessageDialog(
+            parent=self,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.CLOSE,
+            text="You are up to date",
+        )
+        dlg.format_secondary_text(
+            f"Current version: {info.current_version}\nLatest version: {info.latest_version}"
+        )
+        dlg.run()
+        dlg.destroy()
+        self._set_status("No updates available.")
+        return False
 
     def _on_open_image(self, _btn: Gtk.Button) -> None:
         """Open a still image file and run the LPR pipeline on it."""
@@ -582,8 +738,10 @@ class LNPRWindow(Gtk.ApplicationWindow):
         self._set_status(f"Processing image: {Path(filepath).name} …")
 
         # Create a one-shot pipeline if none is running
-        own_pipeline = self._pipeline is None
         pipeline = self._pipeline
+        if pipeline is None and self._pipelines:
+            pipeline = self._pipelines[0]
+        own_pipeline = pipeline is None
         if own_pipeline:
             pipeline = LPRPipeline(
                 lpd_hef=self._settings["lpd_hef"],

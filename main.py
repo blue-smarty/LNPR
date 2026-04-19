@@ -32,7 +32,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rtsp-url",
         default=None,
-        help="RTSP stream URL (used when --source rtsp).",
+        help="RTSP stream URL(s), comma/newline-separated for multiple streams (used when --source rtsp).",
     )
     parser.add_argument(
         "--usb-device",
@@ -68,6 +68,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--debug", action="store_true", help="Enable DEBUG logging."
     )
+    parser.add_argument(
+        "--check-updates",
+        action="store_true",
+        help="Check GitHub for a newer LNPR release and exit.",
+    )
     return parser.parse_args()
 
 
@@ -79,6 +84,25 @@ def main() -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    if args.check_updates:
+        from src.update_checker import check_for_updates
+
+        info = check_for_updates()
+        if info.error:
+            print(f"Update check failed: {info.error}")
+            return 1
+        if info.update_available:
+            print(
+                f"Update available: current={info.current_version}, latest={info.latest_version}"
+            )
+            if info.release_url:
+                print(f"Release notes: {info.release_url}")
+        else:
+            print(
+                f"You are up to date: current={info.current_version}, latest={info.latest_version}"
+            )
+        return 0
 
     import gi
     gi.require_version("Gtk", "3.0")
