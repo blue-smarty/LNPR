@@ -573,7 +573,11 @@ class LNPRWindow(Gtk.ApplicationWindow):
             )
             self._pipeline.open()
 
-        active_pipelines = self._pipelines if self._pipelines else ([self._pipeline] if self._pipeline else [])
+        active_pipelines: list[LPRPipeline] = []
+        if self._pipelines:
+            active_pipelines = self._pipelines
+        elif self._pipeline is not None:
+            active_pipelines = [self._pipeline]
         if active_pipelines and all(p.is_mock for p in active_pipelines):
             self._set_status("Running in DEMO mode (no Hailo hardware detected)")
         elif len(self._cameras) > 1:

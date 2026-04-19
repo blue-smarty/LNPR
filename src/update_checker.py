@@ -39,7 +39,7 @@ def _resolve_current_version() -> str:
     repo_root = Path(__file__).resolve().parents[1]
     try:
         result = subprocess.run(
-            ["git", "--no-pager", "describe", "--tags", "--abbrev=0"],
+            ["git", "describe", "--tags", "--abbrev=0"],
             cwd=str(repo_root),
             check=True,
             capture_output=True,
@@ -116,4 +116,3 @@ def check_for_updates(
         release_url=release_url,
         error=None,
     )
-
