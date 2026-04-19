@@ -13,6 +13,15 @@ from .base import CameraBase, CameraError
 logger = logging.getLogger(__name__)
 
 
+def parse_rtsp_urls(urls: str) -> list[str]:
+    """Parse comma/newline-separated RTSP URLs into a clean list."""
+    if not urls:
+        return []
+    normalized = urls.replace("\n", ",")
+    parsed = [url.strip() for url in normalized.split(",") if url.strip()]
+    return parsed
+
+
 class RTSPCamera(CameraBase):
     """Capture from an RTSP (or any URL-addressable) stream.
 

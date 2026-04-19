@@ -31,7 +31,7 @@ import numpy as np  # noqa: E402
 
 from src.camera.base import CameraBase, CameraError
 from src.camera.demo_camera import DemoCamera
-from src.camera.rtsp_camera import RTSPCamera
+from src.camera.rtsp_camera import RTSPCamera, parse_rtsp_urls
 from src.camera.usb_camera import USBCamera
 from src.lpr.pipeline import LPRPipeline, PlateDetection
 
@@ -241,6 +241,10 @@ class LNPRWindow(Gtk.ApplicationWindow):
         # Application state
         self._camera: Optional[CameraBase] = None
         self._pipeline: Optional[LPRPipeline] = None
+        self._cameras: list[CameraBase] = []
+        self._pipelines: list[LPRPipeline] = []
+        self._camera_labels: list[str] = []
+        self._next_stream_idx = 0
         self._capture_thread: Optional[threading.Thread] = None
         self._running = False
         self._frame_queue: queue.Queue = queue.Queue(maxsize=FRAME_Q_MAXSIZE)
@@ -405,21 +409,31 @@ class LNPRWindow(Gtk.ApplicationWindow):
 
     def _capture_loop(self) -> None:
         """Runs in a background thread: reads frames and runs inference."""
-        assert self._camera is not None
-        assert self._pipeline is not None
-
         while self._running:
-            frame = self._camera.read()
+            source_label = ""
+            if self._cameras and self._pipelines:
+                idx = self._next_stream_idx % len(self._cameras)
+                self._next_stream_idx += 1
+                camera = self._cameras[idx]
+                pipeline = self._pipelines[idx]
+                source_label = self._camera_labels[idx]
+            else:
+                assert self._camera is not None
+                assert self._pipeline is not None
+                camera = self._camera
+                pipeline = self._pipeline
+
+            frame = camera.read()
             if frame is None:
                 time.sleep(0.05)
                 continue
 
-            detections = self._pipeline.process(frame)
-            annotated = self._pipeline.annotate(frame, detections)
+            detections = pipeline.process(frame)
+            annotated = pipeline.annotate(frame, detections)
 
             # Push frame for UI update (drop if queue full)
             try:
-                self._frame_queue.put_nowait((annotated, detections))
+                self._frame_queue.put_nowait((annotated, detections, source_label))
             except queue.Full:
                 pass
 
@@ -432,7 +446,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
     def _on_frame_tick(self) -> bool:
         """Called by GLib every ~40 ms to update the preview and detections."""
         try:
-            frame, detections = self._frame_queue.get_nowait()
+            frame, detections, source_label = self._frame_queue.get_nowait()
         except queue.Empty:
             return True  # keep timer alive
 
@@ -452,7 +466,10 @@ class LNPRWindow(Gtk.ApplicationWindow):
         # Update detections list
         for det in detections:
             ts = time.strftime("%H:%M:%S", time.localtime(det.timestamp))
-            self._det_list.prepend([det.text or "-", f"{det.confidence:.0%}", ts])
+            plate_text = det.text or "-"
+            if source_label:
+                plate_text = f"[{source_label}] {plate_text}"
+            self._det_list.prepend([plate_text, f"{det.confidence:.0%}", ts])
             self._detection_count += 1
             # Trim list
             while len(self._det_list) > MAX_DETECTIONS:
@@ -474,22 +491,87 @@ class LNPRWindow(Gtk.ApplicationWindow):
             self._start()
 
     def _start(self) -> None:
-        try:
-            self._camera = self._make_camera()
-            self._camera.open()
-        except CameraError as exc:
-            self._show_error("Camera Error", str(exc))
-            return
+        self._cameras = []
+        self._pipelines = []
+        self._camera_labels = []
+        self._next_stream_idx = 0
 
-        self._pipeline = LPRPipeline(
-            lpd_hef=self._settings["lpd_hef"],
-            lpr_hef=self._settings["lpr_hef"],
-            conf_threshold=self._settings["conf_threshold"],
-        )
-        self._pipeline.open()
+        source = self._source_combo.get_active_id()
+        if source == "rtsp":
+            urls = parse_rtsp_urls(self._settings["rtsp_url"])
+            if len(urls) > 1:
+                try:
+                    self._cameras = [
+                        RTSPCamera(
+                            url=url,
+                            width=self._settings["width"],
+                            height=self._settings["height"],
+                            fps=self._settings["fps"],
+                        )
+                        for url in urls
+                    ]
+                    for camera in self._cameras:
+                        camera.open()
 
-        if self._pipeline.is_mock:
+                    self._pipelines = [
+                        LPRPipeline(
+                            lpd_hef=self._settings["lpd_hef"],
+                            lpr_hef=self._settings["lpr_hef"],
+                            conf_threshold=self._settings["conf_threshold"],
+                        )
+                        for _ in urls
+                    ]
+                    for pipeline in self._pipelines:
+                        pipeline.open()
+                except CameraError as exc:
+                    for pipeline in self._pipelines:
+                        pipeline.close()
+                    for camera in self._cameras:
+                        camera.release()
+                    self._pipelines = []
+                    self._cameras = []
+                    self._show_error("Camera Error", str(exc))
+                    return
+
+                self._camera_labels = [f"RTSP-{idx + 1}" for idx in range(len(urls))]
+                self._camera = None
+                self._pipeline = None
+            else:
+                try:
+                    self._camera = self._make_camera()
+                    self._camera.open()
+                except CameraError as exc:
+                    self._show_error("Camera Error", str(exc))
+                    return
+
+                self._pipeline = LPRPipeline(
+                    lpd_hef=self._settings["lpd_hef"],
+                    lpr_hef=self._settings["lpr_hef"],
+                    conf_threshold=self._settings["conf_threshold"],
+                )
+                self._pipeline.open()
+        else:
+            try:
+                self._camera = self._make_camera()
+                self._camera.open()
+            except CameraError as exc:
+                self._show_error("Camera Error", str(exc))
+                return
+
+            self._pipeline = LPRPipeline(
+                lpd_hef=self._settings["lpd_hef"],
+                lpr_hef=self._settings["lpr_hef"],
+                conf_threshold=self._settings["conf_threshold"],
+            )
+            self._pipeline.open()
+
+        active_pipelines = self._pipelines if self._pipelines else ([self._pipeline] if self._pipeline else [])
+        if active_pipelines and all(p.is_mock for p in active_pipelines):
             self._set_status("Running in DEMO mode (no Hailo hardware detected)")
+        elif len(self._cameras) > 1:
+            self._set_status(
+                f"Running – {len(self._cameras)} RTSP streams with {len(self._pipelines)} inference pipelines"
+            )
         else:
             self._set_status("Running – Hailo-8 active")
 
@@ -515,6 +597,14 @@ class LNPRWindow(Gtk.ApplicationWindow):
         if self._pipeline:
             self._pipeline.close()
             self._pipeline = None
+        for pipeline in self._pipelines:
+            pipeline.close()
+        self._pipelines = []
+        for camera in self._cameras:
+            camera.release()
+        self._cameras = []
+        self._camera_labels = []
+        self._next_stream_idx = 0
 
         self._start_btn.set_label("▶  Start")
         self._start_btn.get_style_context().remove_class("destructive-action")
@@ -582,8 +672,8 @@ class LNPRWindow(Gtk.ApplicationWindow):
         self._set_status(f"Processing image: {Path(filepath).name} …")
 
         # Create a one-shot pipeline if none is running
-        own_pipeline = self._pipeline is None
-        pipeline = self._pipeline
+        pipeline = self._pipeline or (self._pipelines[0] if self._pipelines else None)
+        own_pipeline = pipeline is None
         if own_pipeline:
             pipeline = LPRPipeline(
                 lpd_hef=self._settings["lpd_hef"],

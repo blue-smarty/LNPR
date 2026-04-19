@@ -91,3 +91,24 @@ class TestCameraBase:
         assert frame.shape == (10, 10, 3)
         cam.release()
         assert not cam.is_open
+
+
+class TestRTSPHelpers:
+    def test_parse_rtsp_urls_comma_and_newline(self):
+        from src.camera.rtsp_camera import parse_rtsp_urls
+
+        urls = (
+            "rtsp://cam-a/stream1, rtsp://cam-b/stream1\n"
+            "rtsp://cam-c/stream1"
+        )
+        parsed = parse_rtsp_urls(urls)
+        assert parsed == [
+            "rtsp://cam-a/stream1",
+            "rtsp://cam-b/stream1",
+            "rtsp://cam-c/stream1",
+        ]
+
+    def test_parse_rtsp_urls_empty(self):
+        from src.camera.rtsp_camera import parse_rtsp_urls
+
+        assert parse_rtsp_urls("") == []
