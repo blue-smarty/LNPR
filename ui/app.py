@@ -34,6 +34,7 @@ from src.camera.demo_camera import DemoCamera
 from src.camera.rtsp_camera import RTSPCamera, parse_rtsp_urls
 from src.camera.usb_camera import USBCamera
 from src.lpr.pipeline import LPRPipeline, PlateDetection
+from src.update_checker import check_for_updates
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +319,11 @@ class LNPRWindow(Gtk.ApplicationWindow):
         settings_btn = Gtk.Button(label="⚙  Settings")
         settings_btn.connect("clicked", self._on_settings)
         toolbar.pack_end(settings_btn, False, False, 0)
+
+        # Check updates
+        update_btn = Gtk.Button(label="🔄  Check Updates")
+        update_btn.connect("clicked", self._on_check_updates)
+        toolbar.pack_end(update_btn, False, False, 0)
 
         # Separator
         outer.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
@@ -625,6 +631,48 @@ class LNPRWindow(Gtk.ApplicationWindow):
         if response == Gtk.ResponseType.OK:
             self._settings = dlg.get_settings()
         dlg.destroy()
+
+    def _on_check_updates(self, _btn: Gtk.Button) -> None:
+        self._set_status("Checking for updates …")
+        info = check_for_updates()
+        if info.error:
+            self._show_error("Update Check Failed", info.error)
+            self._set_status("Update check failed.")
+            return
+
+        if info.update_available:
+            msg = (
+                f"Current version: {info.current_version}\n"
+                f"Latest version: {info.latest_version}\n"
+            )
+            if info.release_url:
+                msg += f"\nRelease notes:\n{info.release_url}"
+            dlg = Gtk.MessageDialog(
+                parent=self,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.CLOSE,
+                text="Update Available",
+            )
+            dlg.format_secondary_text(msg)
+            dlg.run()
+            dlg.destroy()
+            self._set_status(f"Update available: {info.latest_version}")
+            return
+
+        dlg = Gtk.MessageDialog(
+            parent=self,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.CLOSE,
+            text="You are up to date",
+        )
+        dlg.format_secondary_text(
+            f"Current version: {info.current_version}\nLatest version: {info.latest_version}"
+        )
+        dlg.run()
+        dlg.destroy()
+        self._set_status("No updates available.")
 
     def _on_open_image(self, _btn: Gtk.Button) -> None:
         """Open a still image file and run the LPR pipeline on it."""

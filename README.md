@@ -25,6 +25,7 @@ real time on a **Raspberry Pi 5** with a **Hailo-8** AI accelerator.
 | **Still image** | Upload any JPEG / PNG / BMP / TIFF image for instant plate recognition |
 | **AI inference** | Hailo-8 via `hailo_platform` SDK (YOLOv5s LPD + LPRNet) |
 | **UI** | GTK3 — source selector, Start/Stop, Open Image, live preview, detections list, settings panel |
+| **Update check** | Check GitHub releases from CLI (`--check-updates`) or UI button |
 | **Demo mode** | Synthetic animated frames; no hardware needed |
 | **No libatlas** | Uses only `numpy` + `opencv`; no BLAS/ATLAS dependency |
 | **Target OS** | Debian Trixie (bookworm-compatible), aarch64 |
@@ -156,6 +157,9 @@ python main.py --source rtsp --rtsp-url "rtsp://cam1/stream1,rtsp://cam2/stream1
 
 # Debug logging
 python main.py --demo --debug
+
+# Check for a newer LNPR release
+python main.py --check-updates
 ```
 
 All options:
@@ -179,7 +183,8 @@ usage: lnpr [-h] [--source {demo,usb,rtsp,picam}] [--demo]
 5. **Preview pane** – shows the live feed *or* the last uploaded still image, with green bounding boxes and plate text overlaid.
 6. **Recent Detections** panel – timestamped list of the last 50 recognised plates (from both live and still-image sources).
 7. **🗑 Clear** – resets the detections list.
-8. **Status bar** – shows current state (Ready / Running / file processed / error messages).
+8. **🔄 Check Updates** – checks GitHub for a newer LNPR release.
+9. **Status bar** – shows current state (Ready / Running / file processed / error messages).
 
 ### Still image recognition
 
