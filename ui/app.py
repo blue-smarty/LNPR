@@ -726,7 +726,9 @@ class LNPRWindow(Gtk.ApplicationWindow):
         self._set_status(f"Processing image: {Path(filepath).name} …")
 
         # Create a one-shot pipeline if none is running
-        pipeline = self._pipeline or (self._pipelines[0] if self._pipelines else None)
+        pipeline = self._pipeline
+        if pipeline is None and self._pipelines:
+            pipeline = self._pipelines[0]
         own_pipeline = pipeline is None
         if own_pipeline:
             pipeline = LPRPipeline(
