@@ -129,12 +129,13 @@ class SettingsDialog(Gtk.Dialog):
         grid.attach(self._conf_spin, 1, 3, 1, 1)
 
         # --- RTSP URL ---
-        grid.attach(Gtk.Label(label="RTSP URL:", xalign=0), 0, 4, 1, 1)
+        grid.attach(Gtk.Label(label="RTSP URL(s):", xalign=0), 0, 4, 1, 1)
         self._rtsp_entry = Gtk.Entry()
         self._rtsp_entry.set_text(settings.get("rtsp_url", "rtsp://"))
         self._rtsp_entry.set_hexpand(True)
         self._rtsp_entry.set_tooltip_text(
             "Format:  rtsp://[user:password@]<host>[:<port>]/<path>\n"
+            "Use comma or newline to enter multiple streams.\n"
             "Examples:\n"
             "  rtsp://192.168.1.64/stream1\n"
             "  rtsp://admin:secret@192.168.1.64:554/h264Preview_01_main\n"
@@ -146,7 +147,8 @@ class SettingsDialog(Gtk.Dialog):
 
         rtsp_hint = Gtk.Label()
         rtsp_hint.set_markup(
-            "<small><i>Format: rtsp://[user:pass@]host[:port]/path  "
+            "<small><i>Format: rtsp://[user:pass@]host[:port]/path "
+            "(comma/newline = multiple streams)  "
             "(hover for examples)</i></small>"
         )
         rtsp_hint.set_xalign(0)

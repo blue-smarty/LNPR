@@ -32,7 +32,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rtsp-url",
         default=None,
-        help="RTSP stream URL (used when --source rtsp).",
+        help="RTSP stream URL(s), comma/newline-separated for multiple streams (used when --source rtsp).",
     )
     parser.add_argument(
         "--usb-device",

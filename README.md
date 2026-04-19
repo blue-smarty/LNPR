@@ -148,8 +148,11 @@ python main.py --source usb
 # Raspberry Pi camera
 python main.py --source picam
 
-# RTSP stream
+# RTSP stream (single)
 python main.py --source rtsp --rtsp-url "rtsp://admin:secret@192.168.1.64:554/h264Preview_01_main"
+
+# Multiple RTSP streams (comma-separated)
+python main.py --source rtsp --rtsp-url "rtsp://cam1/stream1,rtsp://cam2/stream1"
 
 # Debug logging
 python main.py --demo --debug
@@ -172,7 +175,7 @@ usage: lnpr [-h] [--source {demo,usb,rtsp,picam}] [--demo]
 1. **Source** dropdown – select *Demo*, *USB Camera*, *PiCamera2*, or *RTSP Stream*.
 2. **▶ Start** – opens the camera source and starts inference; button changes to **⏹ Stop**.
 3. **📂 Open Image** – open any JPEG / PNG / BMP / TIFF file for instant still-image recognition.  Works at any time, even while a live stream is running.
-4. **⚙ Settings** – configure frame size, FPS, detection confidence threshold, RTSP URL (with format hints), and USB device index.
+4. **⚙ Settings** – configure frame size, FPS, detection confidence threshold, RTSP URL(s) (with format hints), and USB device index.
 5. **Preview pane** – shows the live feed *or* the last uploaded still image, with green bounding boxes and plate text overlaid.
 6. **Recent Detections** panel – timestamped list of the last 50 recognised plates (from both live and still-image sources).
 7. **🗑 Clear** – resets the detections list.
@@ -225,6 +228,16 @@ rtsp://admin:password@192.168.1.64:554/cam/realmonitor?channel=1&subtype=0
 # Reolink cameras
 rtsp://admin:password@192.168.1.64:554//h264Preview_01_main
 ```
+
+### Multiple RTSP streams
+
+You can run more than one RTSP stream at once by entering multiple URLs:
+
+* In CLI, pass comma-separated URLs to `--rtsp-url`.
+* In **⚙ Settings**, separate URLs with commas or new lines.
+
+When multiple URLs are provided, LNPR opens all streams and creates one
+inference pipeline per stream.
 
 > **Tip**: Enter the URL in **⚙ Settings → RTSP URL** and hover over the
 > field for quick examples.  Then select *RTSP Stream* in the Source dropdown
