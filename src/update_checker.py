@@ -48,7 +48,7 @@ def _resolve_current_version() -> str:
         version = result.stdout.strip()
         if version:
             return version
-    except Exception:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         pass
     return "0.0.0"
 

@@ -16,8 +16,8 @@ class _FakeHTTPResponse:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
-        return None
+    def __exit__(self, exc_type, exc, tb) -> bool:  # noqa: ANN001
+        return False
 
 
 def test_is_newer_version_semver_compare():
@@ -70,4 +70,3 @@ def test_check_for_updates_network_error(monkeypatch):
     info = update_checker.check_for_updates(current_version="v1.2.0", timeout=1.0)
     assert info.error is not None
     assert not info.update_available
-

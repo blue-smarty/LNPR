@@ -34,7 +34,7 @@ from src.camera.demo_camera import DemoCamera
 from src.camera.rtsp_camera import RTSPCamera, parse_rtsp_urls
 from src.camera.usb_camera import USBCamera
 from src.lpr.pipeline import LPRPipeline, PlateDetection
-from src.update_checker import check_for_updates
+from src.update_checker import UpdateInfo, check_for_updates
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +322,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
 
         # Check updates
         update_btn = Gtk.Button(label="🔄  Check Updates")
+        update_btn.set_tooltip_text("Check GitHub for a newer LNPR release")
         update_btn.connect("clicked", self._on_check_updates)
         toolbar.pack_end(update_btn, False, False, 0)
 
@@ -582,7 +583,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
             self._set_status("Running in DEMO mode (no Hailo hardware detected)")
         elif len(self._cameras) > 1:
             self._set_status(
-                f"Running – {len(self._cameras)} RTSP streams with {len(self._pipelines)} inference pipelines"
+                f"Running – {len(self._cameras)} RTSP streams with {len(active_pipelines)} inference pipelines"
             )
         else:
             self._set_status("Running – Hailo-8 active")
@@ -638,11 +639,21 @@ class LNPRWindow(Gtk.ApplicationWindow):
 
     def _on_check_updates(self, _btn: Gtk.Button) -> None:
         self._set_status("Checking for updates …")
+        threading.Thread(
+            target=self._check_updates_worker,
+            daemon=True,
+            name="update-check",
+        ).start()
+
+    def _check_updates_worker(self) -> None:
         info = check_for_updates()
+        GLib.idle_add(self._on_update_check_result, info)
+
+    def _on_update_check_result(self, info: UpdateInfo) -> bool:
         if info.error:
             self._show_error("Update Check Failed", info.error)
             self._set_status("Update check failed.")
-            return
+            return False
 
         if info.update_available:
             msg = (
@@ -662,7 +673,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
             dlg.run()
             dlg.destroy()
             self._set_status(f"Update available: {info.latest_version}")
-            return
+            return False
 
         dlg = Gtk.MessageDialog(
             parent=self,
@@ -677,6 +688,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
         dlg.run()
         dlg.destroy()
         self._set_status("No updates available.")
+        return False
 
     def _on_open_image(self, _btn: Gtk.Button) -> None:
         """Open a still image file and run the LPR pipeline on it."""
