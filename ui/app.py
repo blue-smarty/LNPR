@@ -36,6 +36,12 @@ from src.camera.usb_camera import USBCamera
 from src.lpr.pipeline import LPRPipeline, PlateDetection
 from src.update_checker import UpdateInfo, check_for_updates
 
+try:
+    from src.camera.gst_hailo_camera import GstHailoCamera
+    _GST_OK = True
+except Exception:  # noqa: BLE001
+    _GST_OK = False
+
 logger = logging.getLogger(__name__)
 
 # Try PiCam – may not be available on non-Pi hardware
@@ -90,7 +96,7 @@ class SettingsDialog(Gtk.Dialog):
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
             Gtk.STOCK_OK, Gtk.ResponseType.OK,
         )
-        self.set_default_size(520, 420)
+        self.set_default_size(520, 440)
         self._settings = dict(settings)
 
         grid = Gtk.Grid(
@@ -122,15 +128,28 @@ class SettingsDialog(Gtk.Dialog):
         self._fps_spin.set_value(settings.get("fps", 30))
         grid.attach(self._fps_spin, 1, 2, 1, 1)
 
+        # --- Live backend ---
+        grid.attach(Gtk.Label(label="Live backend:", xalign=0), 0, 3, 1, 1)
+        self._backend_combo = Gtk.ComboBoxText()
+        self._backend_combo.append("opencv", "OpenCV (CPU)")
+        if _GST_OK:
+            self._backend_combo.append("gstreamer", "GStreamer + hailonet")
+        active_backend = settings.get("live_backend", "opencv")
+        if active_backend == "gstreamer" and _GST_OK:
+            self._backend_combo.set_active_id("gstreamer")
+        else:
+            self._backend_combo.set_active_id("opencv")
+        grid.attach(self._backend_combo, 1, 3, 1, 1)
+
         # --- Confidence threshold ---
-        grid.attach(Gtk.Label(label="Detection threshold:", xalign=0), 0, 3, 1, 1)
+        grid.attach(Gtk.Label(label="Detection threshold:", xalign=0), 0, 4, 1, 1)
         self._conf_spin = Gtk.SpinButton.new_with_range(0.1, 1.0, 0.05)
         self._conf_spin.set_digits(2)
         self._conf_spin.set_value(settings.get("conf_threshold", 0.45))
-        grid.attach(self._conf_spin, 1, 3, 1, 1)
+        grid.attach(self._conf_spin, 1, 4, 1, 1)
 
         # --- RTSP URL ---
-        grid.attach(Gtk.Label(label="RTSP URL(s):", xalign=0), 0, 4, 1, 1)
+        grid.attach(Gtk.Label(label="RTSP URL(s):", xalign=0), 0, 5, 1, 1)
         self._rtsp_entry = Gtk.Entry()
         self._rtsp_entry.set_text(settings.get("rtsp_url", "rtsp://"))
         self._rtsp_entry.set_hexpand(True)
@@ -144,22 +163,22 @@ class SettingsDialog(Gtk.Dialog):
             "  rtsp://admin:pass@192.168.1.64:554/Streaming/Channels/101  (Hikvision)\n"
             "  rtsp://admin:pass@192.168.1.64:554/cam/realmonitor?channel=1&subtype=0  (Dahua)"
         )
-        grid.attach(self._rtsp_entry, 1, 4, 1, 1)
+        grid.attach(self._rtsp_entry, 1, 5, 1, 1)
 
         rtsp_hint = Gtk.Label()
         rtsp_hint.set_markup(
-            "<small><i>Format: rtsp://[user:pass@]host[:port]/path "
-            "(comma/newline = multiple streams)  "
+            "<small><i>Format: rtsp://[user:pass@]host[:port]/path \n"
+            "(comma/newline = multiple streams)  \n"
             "(hover for examples)</i></small>"
         )
         rtsp_hint.set_xalign(0)
-        grid.attach(rtsp_hint, 0, 5, 2, 1)
+        grid.attach(rtsp_hint, 0, 6, 2, 1)
 
         # --- USB device index ---
-        grid.attach(Gtk.Label(label="USB device index:", xalign=0), 0, 6, 1, 1)
+        grid.attach(Gtk.Label(label="USB device index:", xalign=0), 0, 7, 1, 1)
         self._usb_spin = Gtk.SpinButton.new_with_range(0, 10, 1)
         self._usb_spin.set_value(settings.get("usb_device", 0))
-        grid.attach(self._usb_spin, 1, 6, 1, 1)
+        grid.attach(self._usb_spin, 1, 7, 1, 1)
 
         # --- HEF file filter (reused for both pickers) ---
         hef_filter = Gtk.FileFilter()
@@ -172,7 +191,7 @@ class SettingsDialog(Gtk.Dialog):
         all_filter.add_pattern("*")
 
         # --- Detection model (LPD) ---
-        grid.attach(Gtk.Label(label="Detection model (.hef):", xalign=0), 0, 7, 1, 1)
+        grid.attach(Gtk.Label(label="Detection model (.hef):", xalign=0), 0, 8, 1, 1)
         self._lpd_btn = Gtk.FileChooserButton(
             title="Select detection HEF model",
             action=Gtk.FileChooserAction.OPEN,
@@ -183,17 +202,17 @@ class SettingsDialog(Gtk.Dialog):
         lpd_path = settings.get("lpd_hef") or ""
         if lpd_path:
             self._lpd_btn.set_filename(lpd_path)
-        grid.attach(self._lpd_btn, 1, 7, 1, 1)
+        grid.attach(self._lpd_btn, 1, 8, 1, 1)
 
         lpd_hint = Gtk.Label()
         lpd_hint.set_markup(
             "<small><i>Licence-plate detection model (leave blank for default)</i></small>"
         )
         lpd_hint.set_xalign(0)
-        grid.attach(lpd_hint, 0, 8, 2, 1)
+        grid.attach(lpd_hint, 0, 9, 2, 1)
 
         # --- Recognition model (LPR) ---
-        grid.attach(Gtk.Label(label="Recognition model (.hef):", xalign=0), 0, 9, 1, 1)
+        grid.attach(Gtk.Label(label="Recognition model (.hef):", xalign=0), 0, 10, 1, 1)
         self._lpr_btn = Gtk.FileChooserButton(
             title="Select recognition HEF model",
             action=Gtk.FileChooserAction.OPEN,
@@ -204,14 +223,14 @@ class SettingsDialog(Gtk.Dialog):
         lpr_path = settings.get("lpr_hef") or ""
         if lpr_path:
             self._lpr_btn.set_filename(lpr_path)
-        grid.attach(self._lpr_btn, 1, 9, 1, 1)
+        grid.attach(self._lpr_btn, 1, 10, 1, 1)
 
         lpr_hint = Gtk.Label()
         lpr_hint.set_markup(
             "<small><i>Optional licence-plate recognition model (LPRNet)</i></small>"
         )
         lpr_hint.set_xalign(0)
-        grid.attach(lpr_hint, 0, 10, 2, 1)
+        grid.attach(lpr_hint, 0, 11, 2, 1)
 
         self.show_all()
 
@@ -222,6 +241,7 @@ class SettingsDialog(Gtk.Dialog):
             "width": int(self._width_spin.get_value()),
             "height": int(self._height_spin.get_value()),
             "fps": int(self._fps_spin.get_value()),
+            "live_backend": self._backend_combo.get_active_id() or "opencv",
             "conf_threshold": self._conf_spin.get_value(),
             "rtsp_url": self._rtsp_entry.get_text(),
             "usb_device": int(self._usb_spin.get_value()),
@@ -252,6 +272,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
         self._running = False
         self._frame_queue: queue.Queue = queue.Queue(maxsize=FRAME_Q_MAXSIZE)
         self._detection_count = 0
+        self._use_pipeline = True
 
         self._settings = {
             "width": 1280,
@@ -262,6 +283,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
             "lpr_hef": None,
             "rtsp_url": "rtsp://",
             "usb_device": 0,
+            "live_backend": "opencv",
         }
 
         self._build_ui()
@@ -399,6 +421,41 @@ class LNPRWindow(Gtk.ApplicationWindow):
         w = self._settings["width"]
         h = self._settings["height"]
         fps = self._settings["fps"]
+        backend = self._settings.get("live_backend", "opencv")
+        lpd_hef = self._settings.get("lpd_hef") or "models/lpd.hef"
+
+        if backend == "gstreamer" and source != "demo":
+            if not _GST_OK:
+                raise CameraError("GStreamer backend not available on this system.")
+            if source == "usb":
+                return GstHailoCamera(
+                    source="usb",
+                    device=self._settings["usb_device"],
+                    width=w,
+                    height=h,
+                    fps=fps,
+                    lpd_hef=lpd_hef,
+                )
+            if source == "rtsp":
+                url = self._settings["rtsp_url"]
+                if not url or url == "rtsp://":
+                    raise CameraError("Please set an RTSP URL in Settings before starting.")
+                return GstHailoCamera(
+                    source="rtsp",
+                    url=url,
+                    width=w,
+                    height=h,
+                    fps=fps,
+                    lpd_hef=lpd_hef,
+                )
+            if source == "picam" and _PICAM_OK:
+                return GstHailoCamera(
+                    source="picam",
+                    width=w,
+                    height=h,
+                    fps=fps,
+                    lpd_hef=lpd_hef,
+                )
 
         if source == "usb":
             return USBCamera(device_index=self._settings["usb_device"], width=w, height=h, fps=fps)
@@ -420,15 +477,14 @@ class LNPRWindow(Gtk.ApplicationWindow):
         """Runs in a background thread: reads frames and runs inference."""
         while self._running:
             source_label = ""
-            if self._cameras and self._pipelines:
+            if self._cameras and (self._pipelines or not self._use_pipeline):
                 idx = self._next_stream_idx % len(self._cameras)
                 self._next_stream_idx += 1
                 camera = self._cameras[idx]
-                pipeline = self._pipelines[idx]
+                pipeline = self._pipelines[idx] if self._pipelines else None
                 source_label = self._camera_labels[idx]
             else:
                 assert self._camera is not None
-                assert self._pipeline is not None
                 camera = self._camera
                 pipeline = self._pipeline
 
@@ -437,8 +493,12 @@ class LNPRWindow(Gtk.ApplicationWindow):
                 time.sleep(0.05)
                 continue
 
-            detections = pipeline.process(frame)
-            annotated = pipeline.annotate(frame, detections)
+            if self._use_pipeline and pipeline is not None:
+                detections = pipeline.process(frame)
+                annotated = pipeline.annotate(frame, detections)
+            else:
+                detections = []
+                annotated = frame
 
             # Push frame for UI update (drop if queue full)
             try:
@@ -504,11 +564,40 @@ class LNPRWindow(Gtk.ApplicationWindow):
         self._pipelines = []
         self._camera_labels = []
         self._next_stream_idx = 0
+        self._use_pipeline = True
 
         source = self._source_combo.get_active_id()
+        backend = self._settings.get("live_backend", "opencv")
+
         if source == "rtsp":
             urls = parse_rtsp_urls(self._settings["rtsp_url"])
-            if len(urls) > 1:
+            if len(urls) > 1 and backend == "gstreamer":
+                try:
+                    self._cameras = [
+                        GstHailoCamera(
+                            source="rtsp",
+                            url=url,
+                            width=self._settings["width"],
+                            height=self._settings["height"],
+                            fps=self._settings["fps"],
+                            lpd_hef=self._settings.get("lpd_hef") or "models/lpd.hef",
+                        )
+                        for url in urls
+                    ]
+                    for camera in self._cameras:
+                        camera.open()
+                except CameraError as exc:
+                    for camera in self._cameras:
+                        camera.release()
+                    self._cameras = []
+                    self._show_error("Camera Error", str(exc))
+                    return
+
+                self._camera_labels = [f"RTSP-{idx + 1}" for idx in range(len(urls))]
+                self._camera = None
+                self._pipeline = None
+                self._use_pipeline = False
+            elif len(urls) > 1:
                 try:
                     self._cameras = [
                         RTSPCamera(
@@ -553,12 +642,16 @@ class LNPRWindow(Gtk.ApplicationWindow):
                     self._show_error("Camera Error", str(exc))
                     return
 
-                self._pipeline = LPRPipeline(
-                    lpd_hef=self._settings["lpd_hef"],
-                    lpr_hef=self._settings["lpr_hef"],
-                    conf_threshold=self._settings["conf_threshold"],
-                )
-                self._pipeline.open()
+                if backend == "gstreamer" and source != "demo":
+                    self._pipeline = None
+                    self._use_pipeline = False
+                else:
+                    self._pipeline = LPRPipeline(
+                        lpd_hef=self._settings["lpd_hef"],
+                        lpr_hef=self._settings["lpr_hef"],
+                        conf_threshold=self._settings["conf_threshold"],
+                    )
+                    self._pipeline.open()
         else:
             try:
                 self._camera = self._make_camera()
@@ -567,19 +660,29 @@ class LNPRWindow(Gtk.ApplicationWindow):
                 self._show_error("Camera Error", str(exc))
                 return
 
-            self._pipeline = LPRPipeline(
-                lpd_hef=self._settings["lpd_hef"],
-                lpr_hef=self._settings["lpr_hef"],
-                conf_threshold=self._settings["conf_threshold"],
-            )
-            self._pipeline.open()
+            if backend == "gstreamer" and source != "demo":
+                self._pipeline = None
+                self._use_pipeline = False
+            else:
+                self._pipeline = LPRPipeline(
+                    lpd_hef=self._settings["lpd_hef"],
+                    lpr_hef=self._settings["lpr_hef"],
+                    conf_threshold=self._settings["conf_threshold"],
+                )
+                self._pipeline.open()
 
         active_pipelines: list[LPRPipeline] = []
         if self._pipelines:
             active_pipelines = self._pipelines
         elif self._pipeline is not None:
             active_pipelines = [self._pipeline]
-        if active_pipelines and all(p.is_mock for p in active_pipelines):
+
+        if not self._use_pipeline and backend == "gstreamer":
+            if len(self._cameras) > 1:
+                self._set_status(f"Running – {len(self._cameras)} RTSP streams with GStreamer hailonet")
+            else:
+                self._set_status("Running – GStreamer hailonet")
+        elif active_pipelines and all(p.is_mock for p in active_pipelines):
             self._set_status("Running in DEMO mode (no Hailo hardware detected)")
         elif len(self._cameras) > 1:
             self._set_status(
@@ -618,6 +721,7 @@ class LNPRWindow(Gtk.ApplicationWindow):
         self._cameras = []
         self._camera_labels = []
         self._next_stream_idx = 0
+        self._use_pipeline = True
 
         self._start_btn.set_label("▶  Start")
         self._start_btn.get_style_context().remove_class("destructive-action")
@@ -843,6 +947,8 @@ class LNPRApp(Gtk.Application):
                 settings_patch["rtsp_url"] = args.rtsp_url
             if args.usb_device is not None:
                 settings_patch["usb_device"] = args.usb_device
+            if getattr(args, "live_backend", None):
+                settings_patch["live_backend"] = args.live_backend
             win._settings.update(settings_patch)  # noqa: SLF001
 
             if args.source:
