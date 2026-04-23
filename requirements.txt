@@ -6,6 +6,10 @@ PyGObject>=3.44        # GTK3 Python bindings (gi)
 # Camera extras (optional – installed separately on RPi)
 # picamera2            # sudo apt install python3-picamera2
 
+# GStreamer (optional – for live GStreamer backend)
+# GStreamer Python bindings are provided by PyGObject above.
+# Hailo GStreamer plugins (hailonet/hailooverlay) come from the Hailo SDK/App Suite.
+
 # Hailo SDK (optional – installed from Hailo DZ package)
 # hailo_platform       # installed from hailo_platform-*.whl
 # hailo-model-zoo      # pip install hailo-model-zoo (for model compilation)
