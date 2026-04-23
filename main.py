@@ -12,7 +12,6 @@ import argparse
 import logging
 import sys
 
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="lnpr",
@@ -66,6 +65,12 @@ def _parse_args() -> argparse.Namespace:
         help="Detection confidence threshold (default: 0.45).",
     )
     parser.add_argument(
+        "--live-backend",
+        choices=["opencv", "gstreamer"],
+        default="opencv",
+        help="Live camera backend (default: opencv).",
+    )
+    parser.add_argument(
         "--debug", action="store_true", help="Enable DEBUG logging."
     )
     parser.add_argument(
@@ -74,7 +79,6 @@ def _parse_args() -> argparse.Namespace:
         help="Check GitHub for a newer LNPR release and exit.",
     )
     return parser.parse_args()
-
 
 def main() -> int:
     args = _parse_args()
