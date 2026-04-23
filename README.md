@@ -4,14 +4,14 @@ A **Python / GTK3** application that detects and reads vehicle licence plates in
 real time on a **Raspberry Pi 5** with a **Hailo-8** AI accelerator.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────�[...]
 │ Source: [Demo ▾]  [▶ Start]  [📂 Open Image]  [🗑 Clear]  [⚙ Settings] │
-├──────────────────────────────────────┬──────────────────────────────┤
+├──────────────────────────────────────┬─────────────────────────�[...]
 │                                      │ Recent Detections            │
 │   Live camera preview /              │ ──────────────────────────── │
 │   Still image display                │ AB12 CDE  92%  14:30:01      │
 │   (annotated bounding boxes)         │ XY34 FGH  88%  14:29:45      │
-└──────────────────────────────────────┴──────────────────────────────┘
+└──────────────────────────────────────┴─────────────────────────�[...]
 │ Running in DEMO mode (no Hailo hardware detected)                    │
 ```
 
@@ -24,6 +24,7 @@ real time on a **Raspberry Pi 5** with a **Hailo-8** AI accelerator.
 | **Camera inputs** | RTSP stream, USB / V4L2 camera, Raspberry Pi Camera (PiCamera2) |
 | **Still image** | Upload any JPEG / PNG / BMP / TIFF image for instant plate recognition |
 | **AI inference** | Hailo-8 via `hailo_platform` SDK (YOLOv5s LPD + LPRNet) |
+| **Live backend** | Choose **OpenCV** or **GStreamer + hailonet** for live streams |
 | **UI** | GTK3 — source selector, Start/Stop, Open Image, live preview, detections list, settings panel |
 | **Update check** | Check GitHub releases from CLI (`--check-updates`) or UI button |
 | **Demo mode** | Synthetic animated frames; no hardware needed |
@@ -47,9 +48,10 @@ LNPR/
 │   │   ├── usb_camera.py   # USB / V4L2 source
 │   │   ├── rtsp_camera.py  # RTSP stream source
 │   │   ├── picam.py        # Raspberry Pi camera (picamera2)
-│   │   └── demo_camera.py  # Synthetic / video-file demo source
+│   │   ├── demo_camera.py  # Synthetic / video-file demo source
+│   │   └── gst_hailo_camera.py  # GStreamer + hailonet live backend
 │   ├── inference/
-│   │   └── hailo_inference.py  # Hailo-8 runtime wrapper
+│   │   └── hailo_inference.py  # Hailo-8 runtime wrapper (AsyncInfer)
 │   └── lpr/
 │       └── pipeline.py     # LPD → crop → LPRNet pipeline
 │
@@ -133,7 +135,7 @@ See [`models/README.md`](models/README.md) for manual steps and links.
 | `lprnet` | `models/lprnet.hef` | Licence-plate **recognition** (optional) |
 
 > If neither model is present the application starts in **demo mode**
-> automatically.
+automatically.
 
 ### 5. Run
 
@@ -155,6 +157,9 @@ python main.py --source rtsp --rtsp-url "rtsp://admin:secret@192.168.1.64:554/h2
 # Multiple RTSP streams (comma-separated)
 python main.py --source rtsp --rtsp-url "rtsp://cam1/stream1,rtsp://cam2/stream1"
 
+# Use GStreamer hailonet live backend
+python main.py --source rtsp --live-backend gstreamer --rtsp-url "rtsp://cam1/stream1"
+
 # Debug logging
 python main.py --demo --debug
 
@@ -169,7 +174,7 @@ usage: lnpr [-h] [--source {demo,usb,rtsp,picam}] [--demo]
             [--rtsp-url RTSP_URL] [--usb-device USB_DEVICE]
             [--width WIDTH] [--height HEIGHT] [--fps FPS]
             [--lpd-hef LPD_HEF] [--lpr-hef LPR_HEF]
-            [--conf-threshold CONF_THRESHOLD] [--debug]
+            [--conf-threshold CONF_THRESHOLD] [--live-backend {opencv,gstreamer}] [--debug]
 ```
 
 ---
@@ -179,7 +184,7 @@ usage: lnpr [-h] [--source {demo,usb,rtsp,picam}] [--demo]
 1. **Source** dropdown – select *Demo*, *USB Camera*, *PiCamera2*, or *RTSP Stream*.
 2. **▶ Start** – opens the camera source and starts inference; button changes to **⏹ Stop**.
 3. **📂 Open Image** – open any JPEG / PNG / BMP / TIFF file for instant still-image recognition.  Works at any time, even while a live stream is running.
-4. **⚙ Settings** – configure frame size, FPS, detection confidence threshold, RTSP URL(s) (with format hints), and USB device index.
+4. **⚙ Settings** – configure frame size, FPS, detection confidence threshold, RTSP URL(s), USB device index, and **Live backend** (OpenCV or GStreamer).
 5. **Preview pane** – shows the live feed *or* the last uploaded still image, with green bounding boxes and plate text overlaid.
 6. **Recent Detections** panel – timestamped list of the last 50 recognised plates (from both live and still-image sources).
 7. **🗑 Clear** – resets the detections list.
@@ -193,6 +198,25 @@ a vehicle (JPEG, PNG, BMP, TIFF, WebP).  The LPR pipeline runs immediately on
 the loaded image: annotated bounding boxes appear in the preview pane, and any
 recognised plates are added to the detections list.  The camera stream (if
 active) resumes automatically.
+
+---
+
+## Hybrid live backend (OpenCV vs GStreamer)
+
+LNPR supports two live backends:
+
+* **OpenCV** (default): Uses OpenCV capture + Python inference pipeline.
+* **GStreamer + hailonet**: Uses a GStreamer pipeline with the Hailo GStreamer plugins
+  (`hailonet`, optionally `hailooverlay`) for live inference and overlays.
+
+Select it via:
+
+* CLI: `--live-backend gstreamer`
+* UI: **⚙ Settings → Live backend**
+
+> When using GStreamer, live inference is performed in the pipeline and the
+> Python LPR pipeline is bypassed for live streams. Still images continue to
+> use the Python AsyncInfer pipeline.
 
 ---
 
@@ -265,14 +289,14 @@ inference pipeline per stream.
 
 `src/camera/base.py` defines `CameraBase` – a Python abstract class with
 `open()`, `read()`, `release()` methods and context-manager support.  Each
-source (`USBCamera`, `RTSPCamera`, `PiCamera2Camera`, `DemoCamera`) implements
+source (`USBCamera`, `RTSPCamera`, `PiCamera2Camera`, `DemoCamera`, `GstHailoCamera`) implements
 this interface.  The UI and pipeline only ever talk to `CameraBase`, so adding
 new sources requires no changes elsewhere.
 
 ### Hailo inference wrapper
 
-`src/inference/hailo_inference.py` wraps `hailo_platform.InferVStreams` into a
-simple `HailoInference` class.  When the SDK is not installed it silently enters
+`src/inference/hailo_inference.py` wraps HailoRT into a
+simple `HailoInference` class with **AsyncInfer**.  When the SDK is not installed it silently enters
 **mock mode**, returning empty tensors.  This allows the full UI to be exercised
 on any machine.
 
