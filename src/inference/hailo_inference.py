@@ -1,7 +1,7 @@
 """Hailo-8 inference wrapper.
 
 This module wraps the Hailo Runtime Python API (``hailo_platform``) to provide
-a simple synchronous interface for running HEF (Hailo Executable Format) models.
+an async-backed interface for running HEF (Hailo Executable Format) models.
 
 When the Hailo SDK is not installed the wrapper falls back to a **mock** mode
 that returns empty results, allowing the rest of the application (including the
@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 
@@ -29,15 +29,9 @@ logger = logging.getLogger(__name__)
 
 try:
     from hailo_platform import (  # type: ignore
-        HEF,
-        ConfigureParams,
+        VDevice,
         FormatType,
         HailoSchedulingAlgorithm,
-        HailoStreamInterface,
-        InferVStreams,
-        InputVStreamParams,
-        OutputVStreamParams,
-        VDevice,
     )
     _HAILO_AVAILABLE = True
 except ImportError:
@@ -64,22 +58,28 @@ class HailoInference:
         hef_path: Path to the compiled ``.hef`` model file.
         input_format: Hailo input format type (default ``UINT8``).
         batch_size: Inference batch size (default 1).
+        timeout_ms: Async inference timeout in milliseconds.
     """
+
+    _shared_device: Optional[VDevice] = None
+    _shared_refs = 0
+    _shared_lock = threading.Lock()
 
     def __init__(
         self,
         hef_path: str | Path,
         input_format: str = "UINT8",
         batch_size: int = 1,
+        timeout_ms: int = 1000,
     ) -> None:
         self.hef_path = Path(hef_path)
         self.input_format = input_format
         self.batch_size = batch_size
+        self.timeout_ms = timeout_ms
 
-        self._device = None
-        self._network_group = None
-        self._input_vstream_params = None
-        self._output_vstream_params = None
+        self._device: Optional[VDevice] = None
+        self._infer_model = None
+        self._configured_infer_model = None
         self._lock = threading.Lock()
         self._mock = not _HAILO_AVAILABLE
 
@@ -110,33 +110,52 @@ class HailoInference:
 
         logger.info("Loading HEF: %s", self.hef_path)
         try:
-            params = VDevice.create_params()
-            params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
-            self._device = VDevice(params=params)
+            with self._shared_lock:
+                if self.__class__._shared_device is None:
+                    params = VDevice.create_params()
+                    params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
+                    self.__class__._shared_device = VDevice(params=params)
+                self.__class__._shared_refs += 1
+                self._device = self.__class__._shared_device
 
-            hef = HEF(str(self.hef_path))
-            configure_params = ConfigureParams.create_from_hef(
-                hef=hef, interface=HailoStreamInterface.PCIe
-            )
-            network_groups = self._device.configure(hef, configure_params)
-            if not network_groups:
-                raise HailoInferenceError("No network groups found in HEF")
-            self._network_group = network_groups[0]
+            if self._device is None:
+                raise HailoInferenceError("Failed to acquire Hailo VDevice")
+
+            self._infer_model = self._device.create_infer_model(str(self.hef_path))
+            if hasattr(self._infer_model, "set_batch_size"):
+                self._infer_model.set_batch_size(self.batch_size)
 
             fmt = getattr(FormatType, self.input_format)
-            self._input_vstream_params = InputVStreamParams.make(
-                self._network_group, format_type=fmt
-            )
-            self._output_vstream_params = OutputVStreamParams.make(
-                self._network_group, format_type=FormatType.FLOAT32
-            )
+            try:
+                self._infer_model.input().set_format_type(fmt)
+            except Exception:  # noqa: BLE001
+                pass
+
+            for output in self._get_outputs():
+                try:
+                    output.set_format_type(FormatType.FLOAT32)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            self._configured_infer_model = self._infer_model.configure()
             logger.info("Hailo-8 model loaded successfully")
         except Exception as exc:
             raise HailoInferenceError(f"Failed to load HEF: {exc}") from exc
 
     def close(self) -> None:
         """Release the Hailo device."""
+        self._configured_infer_model = None
+        self._infer_model = None
+
         if self._device is not None:
+            with self._shared_lock:
+                self.__class__._shared_refs = max(0, self.__class__._shared_refs - 1)
+                if self.__class__._shared_refs == 0 and self.__class__._shared_device is not None:
+                    try:
+                        self.__class__._shared_device.release()  # type: ignore[attr-defined]
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self.__class__._shared_device = None
             self._device = None
             logger.info("Hailo device released")
 
@@ -157,6 +176,9 @@ class HailoInference:
         if self._mock:
             return {}
 
+        if self._configured_infer_model is None or self._infer_model is None:
+            return {}
+
         # Resize to model input dimensions
         input_shape = self._get_input_shape()
         if input_shape:
@@ -169,33 +191,63 @@ class HailoInference:
 
         with self._lock:
             try:
-                with InferVStreams(
-                    self._network_group,
-                    self._input_vstream_params,
-                    self._output_vstream_params,
-                ) as pipeline:
-                    input_data = {
-                        list(pipeline.get_input_vstreams())[0].name: batch
-                    }
-                    with self._network_group.activate():
-                        raw_results = pipeline.infer(input_data)
+                bindings = self._configured_infer_model.create_bindings()
+                try:
+                    bindings.input().set_buffer(batch)
+                except Exception:  # noqa: BLE001
+                    bindings.input(self._infer_model.input().name).set_buffer(batch)
+
+                output_buffers: Dict[str, np.ndarray] = {}
+                for output in self._get_outputs():
+                    out_name = getattr(output, "name", "output")
+                    buffer = np.empty(output.shape, dtype=np.float32)
+                    output_buffers[out_name] = buffer
+                    self._set_output_buffer(bindings, output, buffer)
+
+                self._configured_infer_model.wait_for_async_ready(timeout_ms=self.timeout_ms)
+                job = self._configured_infer_model.run_async([bindings])
+                job.wait(self.timeout_ms)
+
+                results: Dict[str, np.ndarray] = {}
+                for output in self._get_outputs():
+                    out_name = getattr(output, "name", "output")
+                    results[out_name] = self._get_output_buffer(bindings, output)
+                return results
             except Exception as exc:
                 logger.error("Inference failed: %s", exc)
                 return {}
-
-        return {k: v[0] for k, v in raw_results.items()}
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
+    def _get_outputs(self):
+        if self._infer_model is None:
+            return []
+        if hasattr(self._infer_model, "outputs"):
+            return list(self._infer_model.outputs())
+        if hasattr(self._infer_model, "output"):
+            return [self._infer_model.output()]
+        return []
+
+    def _set_output_buffer(self, bindings, output, buffer: np.ndarray) -> None:  # noqa: ANN001
+        try:
+            bindings.output(output.name).set_buffer(buffer)
+        except Exception:  # noqa: BLE001
+            bindings.output().set_buffer(buffer)
+
+    def _get_output_buffer(self, bindings, output) -> np.ndarray:  # noqa: ANN001
+        try:
+            return bindings.output(output.name).get_buffer()
+        except Exception:  # noqa: BLE001
+            return bindings.output().get_buffer()
+
     def _get_input_shape(self) -> Optional[Tuple[int, ...]]:
-        if self._input_vstream_params is None:
+        if self._infer_model is None:
             return None
         try:
-            params = next(iter(self._input_vstream_params))
-            return params.shape
-        except (StopIteration, AttributeError):
+            return tuple(self._infer_model.input().shape)
+        except Exception:
             return None
 
     @property
