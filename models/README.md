@@ -48,6 +48,36 @@ logging in with your Developer Zone credentials.
 
 ---
 
+## Custom YOLO ONNX → HEF compile (concat mapping failures)
+
+If Hailo compilation fails with messages like `concatXX ... Agent infeasible`,
+compile up to the three raw YOLO detection-head `Conv` outputs (one per stride)
+instead of `Sigmoid`/`Concat` nodes.
+
+```bash
+python scripts/onnx_to_hef.py \
+  --onnx runs/detect/lnpr/weights/best.onnx \
+  --hw-arch hailo8 \
+  --end-node /model.24/m.0/Conv \
+  --end-node /model.24/m.1/Conv \
+  --end-node /model.24/m.2/Conv
+```
+
+> Node indexes may differ in your export. Choose the **last 3 Conv nodes** in
+> the detect branch, immediately before any `Sigmoid`/`Concat`.
+
+Quickly list candidate node names:
+
+```bash
+python -c "import onnx; m=onnx.load('runs/detect/lnpr/weights/best.onnx'); \
+print('\n'.join(n.name for n in m.graph.node if n.op_type=='Conv'))"
+```
+
+Then re-run compilation with only those 3 Conv `--end-node` values and keep
+decode/NMS on CPU side.
+
+---
+
 ## Demo / no-hardware mode
 
 If no `.hef` files are present the application automatically runs in **demo
